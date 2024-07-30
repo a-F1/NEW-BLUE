@@ -5,7 +5,8 @@ llama2-7b:
   answer_tag: ""
   flash_attention2: "true"
   gradient_checkpointing: "true"
-  ft_model_path: "paper_models/final_ft_noLORA_5_epochs_inst_lr1e-05_llama2-7b_full/checkpoint-625" #this model will be used for unlearning by defauly
+  # ft_model_path: "paper_models/final_ft_noLORA_5_epochs_inst_lr1e-05_llama2-7b_full/checkpoint-625" #this model will be used for unlearning by defauly
+  ft_model_path: "locuslab/tofu_ft_llama2-7b"
 phi:
   hf_key: "microsoft/phi-1_5"
   question_start_tag: "Question: "
