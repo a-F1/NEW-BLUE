@@ -221,6 +221,7 @@ def main(cfg):
     model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
     trainer.train()
 
+    print(model)
     #save the tokenizer
     model.save_pretrained(cfg.save_dir)
     tokenizer.save_pretrained(cfg.save_dir)

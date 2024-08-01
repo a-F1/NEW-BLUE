@@ -33,3 +33,5 @@ overwrite: true
 use_pretrained: false
 
 batch_size: 30
+
+reinitialize_weights: false

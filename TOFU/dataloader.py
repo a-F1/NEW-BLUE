@@ -450,8 +450,6 @@ class CustomTrainerForgetting(Trainer):
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
-        
-        print(f"self.is_deepspeed_enabled: {self.is_deepspeed_enabled}")
         self.accelerator.free_memory()
         self._train_batch_size = batch_size
         if self.args.auto_find_batch_size:
@@ -712,7 +710,6 @@ class CustomTrainerForgetting(Trainer):
 
         total_batched_samples = 0
         for epoch in range(epochs_trained, num_train_epochs):
-            print("****** HAHAHA! ******")
             epoch_iterator = train_dataloader
             if hasattr(epoch_iterator, "set_epoch"):
                 epoch_iterator.set_epoch(epoch)
@@ -833,7 +830,7 @@ class CustomTrainerForgetting(Trainer):
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    # self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -848,7 +845,7 @@ class CustomTrainerForgetting(Trainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            # self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -1275,5 +1272,3 @@ def get_loss(output, labels):
     loss = loss_function(output.view(-1, output.size(-1)), shifted_labels.view(-1))
 
     return loss
-
-

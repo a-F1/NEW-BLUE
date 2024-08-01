@@ -207,7 +207,6 @@ def main(cfg):
     else:
         print("Error: could not load model")
 
-    
     def reinitialize_weights(model) -> None:
         for module in model.modules():
             if isinstance(module, nn.Linear):
