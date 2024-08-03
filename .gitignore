@@ -1,4 +1,5 @@
 TOFU/outputs/
 TOFU/results/
+TOFU/paper_models/
 TOFU/__pycache__/
 TOFU/locuslab/

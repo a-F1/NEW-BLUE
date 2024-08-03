@@ -120,6 +120,7 @@ def main(cfg):
     else:
         raise NotImplementedError("The warmup_steps must be an integer or step_per_epoch.")
 
+    print(f"steps_per_epoch: {steps_per_epoch}, eval_steps: {eval_steps}, warmup_steps: {warmup_steps}")
     training_args = transformers.TrainingArguments(
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
@@ -141,38 +142,38 @@ def main(cfg):
             eval_steps = eval_steps,
     )
     
-    # #first get the base model architectur2e
-    # #if there is a pytorch*.bin file in the model path, then load that. use regex there can be anythign in between pytorch and .bin
-    # import re
-    # path_found = False
-    # for file in os.listdir(cfg.model_path):
-    #     if re.search("pytorch.*\.bin", file):
-    #         path_found = True
-    #         break
+    #first get the base model architectur2e
+    #if there is a pytorch*.bin file in the model path, then load that. use regex there can be anythign in between pytorch and .bin
+    import re
+    path_found = False
+    for file in os.listdir(cfg.model_path):
+        if re.search("pytorch.*\.bin", file):
+            path_found = True
+            break
         
-    #     if re.search("model-*\.safetensors", file):
-    #         path_found = True
-    #         break
+        if re.search("model-*\.safetensors", file):
+            path_found = True
+            break
 
-    # oracle_model = None
+    oracle_model = None
 
-    # if path_found:
-    #     print("Loading from checkpoint")
-    #     model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
-    #     oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
+    if path_found:
+        print("Loading from checkpoint")
+        model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
+        oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
 
-    # else:
-    #     print("Loading after merge and unload")
-    #     model = AutoModelForCausalLM.from_pretrained(model_id, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, device_map=device_map)
-    #     #now use the checkpoint to add the LoRA modules
-    #     model = PeftModel.from_pretrained(model, model_id = cfg.model_path)
-    #     #save this as a standard model so that we can again do PEFT style finetuneing from scratch
-    #     model = model.merge_and_unload()
-    #     #save the model for next time
-    #     model.save_pretrained(cfg.model_path)
+    else:
+        print("Loading after merge and unload")
+        model = AutoModelForCausalLM.from_pretrained(model_id, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, device_map=device_map)
+        #now use the checkpoint to add the LoRA modules
+        model = PeftModel.from_pretrained(model, model_id = cfg.model_path)
+        #save this as a standard model so that we can again do PEFT style finetuneing from scratch
+        model = model.merge_and_unload()
+        #save the model for next time
+        model.save_pretrained(cfg.model_path)
     
-    model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
-    oracle_model = AutoModelForCausalLM.from_pretrained(cfg.model_path, use_flash_attention_2=model_cfg["flash_attention2"]=="true", torch_dtype=torch.bfloat16, trust_remote_code = True)
+    # Hot fix for https://discuss.huggingface.co/t/help-with-llama-2-finetuning-setup/50035
+    model.generation_config.do_sample = True
 
     #now we have a HuggingFace model 
     if model_cfg["gradient_checkpointing"] == "true":
@@ -198,7 +199,7 @@ def main(cfg):
         cfg.eval.split_list = ['retain_perturbed', 'real_authors_perturbed', 'world_facts_perturbed', 'forget10_perturbed']
     else:
         raise NotImplementedError
-    
+
     trainer = CustomTrainerForgetting(
         model=model,
         tokenizer=tokenizer,
@@ -220,8 +221,8 @@ def main(cfg):
     )
     model.config.use_cache = False  # silence the warnings. Please re-enable for inference!
     trainer.train()
+    trainer.evaluate()
 
-    print(model)
     #save the tokenizer
     model.save_pretrained(cfg.save_dir)
     tokenizer.save_pretrained(cfg.save_dir)
