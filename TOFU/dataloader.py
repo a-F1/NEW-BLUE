@@ -24,7 +24,6 @@ import math
 import os
 import sys
 
-sys.path.append("src")
 import time
 from copy import deepcopy
 
@@ -72,6 +71,8 @@ if is_sagemaker_mp_enabled():
     import smdistributed.modelparallel.torch as smp
 
 import shutil
+import transformers
+from generate_mask import GenerateMask
 
 if is_apex_available():
     from apex import amp
@@ -596,6 +597,114 @@ class CustomTrainerForgetting(Trainer):
 
                 with open(os.path.join(curr_save_dir, "truth_ratio.pkl"), 'wb') as picklefile:
                     pickle.dump(trust_ratio, picklefile)
+
+class VectorTrainerForgetting(CustomTrainerForgetting):
+    def __init__(self, *args, **kwargs):
+
+        self.forget_mask_path = kwargs.pop("forget_mask_path")
+        self.retain_mask_path = kwargs.pop("retain_mask_path")
+        self.forget_vector_path = kwargs.pop("forget_vector_path")
+        self.retain_vector_path = kwargs.pop("retain_vector_path")
+        self.relation = kwargs.pop("relation")
+
+        super(VectorTrainerForgetting, self).__init__(*args, **kwargs)
+        # print(f"self.optimizier in VectorTrainerForgetting: {self.optimizer}")
+        self.mask = self.init_masks()
+        self.vector = self.init_vectors()
+
+    def apply_matrix_to_device(self, matrix):
+        for key, tensor in self.model.named_parameters():
+            matrix[key] = matrix[key].to(tensor.device)
+
+    def init_vectors(self):
+        def load_and_apply_vector(vector_path):
+            if vector_path is None:
+                vector = {}
+                # Iterate through the model parameters to initialize a similar structure
+                for name, param in self.model.named_parameters():
+                    vector[name] = torch.zeros_like(param)
+            elif os.path.exists(vector_path):
+                vector = torch.load(vector_path)
+                self.apply_matrix_to_device(vector)
+            else:
+                vector = None
+            return vector
+        
+        # for BLUE
+        # Initialize forget_vector and retain_vector
+        self.vector["forget"] = load_and_apply_vector(self.forget_vector_path)
+        self.vector["retain"] = load_and_apply_vector(self.retain_vector_path)
+
+    def init_masks(self):
+        def load_and_apply_mask(mask_path):
+            if mask_path is None:
+                return None
+            elif os.path.exists(mask_path):
+                mask = torch.load(mask_path)
+                self.apply_matrix_to_device(mask)
+            else:
+                generate_and_load_mask(mask_path)
+                mask = torch.load(mask_path)
+                self.apply_matrix_to_device(mask)
+            return mask
+
+        def generate_and_load_mask(mask_path):
+            parts = mask_path.split("/")
+            score_type = parts[-2]
+            ratio = float(parts[-1].split("_")[-1].split(".p")[0])
+            mask_dir = mask_path.replace(f"with_{ratio}.pt", "")
+            
+            if not os.path.exists(mask_dir):
+                os.makedirs(mask_dir)
+
+            mask_args = transformers.TrainingArguments(
+                per_device_train_batch_size=self.args.per_device_train_batch_size,
+                per_device_eval_batch_size=self.args.per_device_eval_batch_size,
+                gradient_accumulation_steps=self.args.gradient_accumulation_steps,
+                warmup_steps=self.args.max_steps,
+                max_steps=self.args.max_steps,
+                learning_rate=self.args.learning_rate,
+                bf16=self.args.bf16,
+                bf16_full_eval=self.args.bf16_full_eval,
+                logging_steps=self.args.logging_steps,
+                logging_dir=self.args.logging_dir,
+                optim=self.args.optim,
+                save_steps=self.args.save_steps,
+                weight_decay=self.args.weight_decay,
+                remove_unused_columns=False,
+                save_total_limit=3,
+                output_dir=mask_dir,
+                report_to=[],
+            )
+
+            GenerateMask(
+                score_type=score_type,
+                ratios=[ratio],
+                mask_dir=mask_dir,
+                model=self.model,
+                data_collator=self.data_collator,
+                tokenizer=self.tokenizer,
+                train_dataset=self.train_dataset,
+                eval_dataset=None,
+                compute_metrics=None,
+                args=mask_args,
+            ).get_mask()
+
+        if self.relation == "independent":
+            self.mask["retain"] = load_and_apply_mask(self.retain_mask_path)
+            self.mask["forget"] = load_and_apply_mask(self.forget_mask_path)
+
+        elif self.relation == "complementary":
+            self.mask["retain"] = load_and_apply_mask(self.retain_mask_path)
+            self.mask["forget"] = {key: ~value for key, value in self.mask["retain"].items()}
+
+        elif self.relation == "full_forget":
+            self.mask["retain"] = load_and_apply_mask(self.retain_mask_path)
+            self.mask["forget"] = {key: torch.ones_like(value, dtype=torch.bool) for key, value in self.mask["retain"].items()}
+
+        else:
+            raise ValueError(f"Unknown relation type: {self.relation}")
+
 
 class CustomTrainerRetraining(Trainer):
     def __init__(self, *args, **kwargs):

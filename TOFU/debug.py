@@ -5,3 +5,18 @@
 # config = AutoConfig.from_pretrained(model_path)
 
 # model = AutoModelForCausalLM.from_pretrained(model_path, config=config, torch_dtype=torch.bfloat16, trust_remote_code=True)
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# # 1. 加载模型和分词器
+# model_name = "gpt2"
+# model = AutoModelForCausalLM.from_pretrained(model_name)
+# tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+# # 6. 保存模型和分词器
+# model.save_pretrained("/egr/research-optml/chongyu/NEW-BLUE/TOFU")
+# tokenizer.save_pretrained("/egr/research-optml/chongyu/NEW-BLUE/TOFU")
+
+model_path = "/egr/research-optml/chongyu/NEW-BLUE/TOFU/"
+model = AutoModelForCausalLM.from_pretrained(model_path)
+print(model)
