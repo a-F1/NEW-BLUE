@@ -29,4 +29,9 @@ bash /egr/research-optml/chongyu/NEW-BLUE/TOFU/commands/run0.sb&
 
 # debug
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nproc_per_node=8 --master_port=18765 forget.py --config-name=forget.yaml forget_loss=grad_diff save_dir=try
+
+# generate mask
+delete `ddp_find_unused_parameters= False, deepspeed='config/ds_config.json',` in vector_forget.py
+delete `self.oracle_model = self.e_prepare_deepspeed(self.oracle_model)` in dataloader.py
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 --master_port=18765 vector_forget.py --config-name=vector_forget.yaml
 ```

@@ -135,8 +135,11 @@ def main(cfg):
             output_dir=cfg.save_dir,
             optim="paged_adamw_32bit",
             save_steps=max_steps+1, # do not save the model
+
+            # without deepspeed
             ddp_find_unused_parameters= False,
             deepspeed='config/ds_config.json',
+
             weight_decay = cfg.weight_decay,
             evaluation_strategy = "steps",
             eval_steps = eval_steps,
@@ -206,6 +209,9 @@ def main(cfg):
     relation = cfg.relation
     forget_vector_path = cfg.vector_path.forget
     retain_vector_path = cfg.vector_path.retain
+
+    # for name, param in model.named_parameters():
+    #     print(f"{name} in vector_forget.py : {param.size()}")
 
     trainer = VectorTrainerForgetting(
         model=model,

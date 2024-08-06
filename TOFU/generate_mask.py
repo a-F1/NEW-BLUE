@@ -52,11 +52,11 @@ class GenerateMask(Trainer):
 
     def get_mask(self):
         if self.score_type == "gradient":
-            self.gradient()
+            self.gradient(self.args)
         elif self.score_type == "retain_gradient":
-            self.gradient(dataset="retain")
+            self.gradient(self.args, dataset="retain")
         elif self.score_type == "forget_gradient":
-            self.gradient(dataset="forget")
+            self.gradient(self.args, dataset="forget")
         else:
             raise ValueError(f"score_type {self.score_type} not supported")
         
@@ -87,28 +87,51 @@ class GenerateMask(Trainer):
                 hard_dict[key] = hard_dict[key].type(torch.bool)
             torch.save(hard_dict, os.path.join(self.mask_dir, f"with_{ratio}.pt"))
 
-    def gradient(self, dataset="forget"):
+    def gradient(self, args, dataset="forget"):
         gradients = {}
 
         self.accelerator.free_memory()
-        self.model.eval()
         train_dataloader = self.get_train_dataloader()
 
-        # model = self._wrap_model(self.model)
-        # # model, self.optimizer = self.accelerator.prepare(model, self.optimizer)
+        model = self._wrap_model(self.model, training=False, dataloader=None)
 
-        # if model is not self.model:
-        #     self.model_wrapped = model
+        print('####### Evaluating the model...... #######')
+        print(self.is_in_train, args.device, model.dtype, self.args.dataloader_num_workers, self.eval_cfg.split_list)
 
-        # print(f"model: {model}")
-        # print(f"self.model: {self.model}")
-        self.model.zero_grad()
+        if len(self.accelerator._models) == 0 and model is self.model:
+            model = (
+                self.accelerator.prepare(model)
+                if self.is_deepspeed_enabled
+                else self.accelerator.prepare_model(model, evaluation_mode=True)
+            )
+
+            if self.is_fsdp_enabled:
+                self.model = model
+
+            # for the rest of this function `model` is the outside model, whether it was wrapped or not
+            if model is not self.model:
+                self.model_wrapped = model
+
+            # backward compatibility
+            if self.is_deepspeed_enabled:
+                self.deepspeed = self.model_wrapped
+
+        # if full fp16 or bf16 eval is wanted and this ``evaluation`` or ``predict`` isn't called
+        # while ``train`` is running, cast it to the right dtype first and then put on device
+        if not self.is_in_train:
+            if args.fp16_full_eval:
+                model = model.to(dtype=torch.float16, device=args.device)
+            elif args.bf16_full_eval:
+                model = model.to(dtype=torch.bfloat16, device=args.device)
+        
+        model.eval()
+        model.zero_grad()
+
         for inputs in tqdm.tqdm(train_dataloader, desc=f"computing {dataset} gradient"):
             inputs = self._prepare_inputs(inputs)
-
             # for npo
             input_ids, labels, attention_mask = inputs[0] if dataset == "forget" else inputs[1]
-            outputs = self.model(input_ids, labels=labels, attention_mask=attention_mask)  # attention_mask indicates which tokens to attend to
+            outputs = model(input_ids, labels=labels, attention_mask=attention_mask)  # attention_mask indicates which tokens to attend to
             loss = outputs.loss
 
             if self.args.n_gpu > 1:
@@ -117,16 +140,16 @@ class GenerateMask(Trainer):
             self.accelerator.backward(loss)
 
             with torch.no_grad():
-                for key, tensor in self.model.named_parameters():
+                for key, tensor in model.named_parameters():
                     if key not in gradients:
                         gradients[key] = tensor.grad.detach().clone()
                     else:
                         gradients[key] += tensor.grad.detach().clone()
 
-            self.model.zero_grad()
+            model.zero_grad()
 
         with torch.no_grad():
-            for key, tensor in self.model.named_parameters():
+            for key, tensor in model.named_parameters():
                 gradients[key] = -torch.abs(gradients[key])
 
             self.scores = torch.cat(
